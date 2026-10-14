@@ -102,7 +102,7 @@ jobs:
       - name: Build the unsigned release package
         run: npm --prefix legacy run build
 
-- name: Sign Package with Tizen CLI for Old Tizen
+      - name: Sign Package with Tizen CLI for Old Tizen
         run: |
           set -euo pipefail
           mkdir -p signed-release
