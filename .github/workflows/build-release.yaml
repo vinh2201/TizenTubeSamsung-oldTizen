@@ -112,41 +112,47 @@ jobs:
             if [ -f "$f" ]; then
               filename=$(basename "$f")
               base_name=$(basename "$f" .zip)
-              echo "🔏 Đang giải nén và tiến hành ký số cho gói: $filename..."
+              echo "🔏 Đang giải nén gói zip ngoài: $filename..."
               
-              rm -rf /tmp/tizen-old-sign && mkdir -p /tmp/tizen-old-sign
-              unzip -q "$f" -d /tmp/tizen-old-sign/
+              rm -rf /tmp/tizen-extract && mkdir -p /tmp/tizen-extract
+              unzip -q "$f" -d /tmp/tizen-extract/
               
-              echo "🔍 Cấu trúc thư mục sau khi giải nén:"
-              find /tmp/tizen-old-sign -maxdepth 3
+              # Tìm file .wgt cần ký bên trong thư mục vừa giải nén
+              WGT_FILE=$(find /tmp/tizen-extract -name "*-resign-required.wgt" | head -n 1)
+              if [ -z "${WGT_FILE:-}" ]; then
+                WGT_FILE=$(find /tmp/tizen-extract -name "*.wgt" | head -n 1)
+              fi
               
-              # Tìm chính xác vị trí file config.xml trong thư mục giải nén
-              CONFIG_PATH=$(find /tmp/tizen-old-sign -name "config.xml" | head -n 1)
-              if [ -z "${CONFIG_PATH:-}" ]; then
-                echo "❌ Lỗi: Không tìm thấy file config.xml trong gói zip!"
+              if [ -z "${WGT_FILE:-}" ]; then
+                echo "❌ Lỗi: Không tìm thấy file .wgt nào bên trong gói zip!"
                 exit 1
               fi
               
-              CONFIG_DIR=$(dirname "$CONFIG_PATH")
-              echo "📂 Thư mục chứa config.xml thực tế là: $CONFIG_DIR"
+              echo "📂 Đã tìm thấy file .wgt bên trong: $(basename "$WGT_FILE")"
               
-              # Nếu config.xml nằm trong thư mục con, tiến hành kéo toàn bộ file ra thư mục root /tmp/tizen-old-sign
-              if [ "$CONFIG_DIR" != "/tmp/tizen-old-sign" ]; then
-                echo "🚚 Đang đồng bộ toàn bộ file từ thư mục con ra thư mục gốc..."
-                cp -a "$CONFIG_DIR"/. /tmp/tizen-old-sign/
+              # Giải nén file .wgt ra thư mục làm việc (vì .wgt chứa sẵn config.xml ở root)
+              rm -rf /tmp/tizen-old-sign && mkdir -p /tmp/tizen-old-sign
+              unzip -q "$WGT_FILE" -d /tmp/tizen-old-sign/
+              
+              echo "🔍 Cấu trúc sau khi giải nén file .wgt:"
+              ls -la /tmp/tizen-old-sign
+              
+              if [ ! -f "/tmp/tizen-old-sign/config.xml" ]; then
+                echo "❌ Lỗi: Không tìm thấy file config.xml trong file .wgt!"
+                exit 1
               fi
               
               # Tiêm file .project cấu hình Tizen Web Nature giúp Tizen CLI nhận diện dự án
               printf '<?xml version="1.0" encoding="UTF-8"?>\n<projectDescription>\n    <name>TizenOldTemp</name>\n    <comment></comment>\n    <projects>\n    </projects>\n    <buildSpec>\n    </buildSpec>\n    <natures>\n        <nature>org.tizen.web.project.core.webNature</nature>\n    </natures>\n</projectDescription>\n' > /tmp/tizen-old-sign/.project
               
               cd /tmp/tizen-old-sign
-              echo "📦 Đang chạy lệnh tizen package..."
+              echo "📦 Đang chạy lệnh tizen package để ký lại..."
               tizen package -t wgt -s TizenTubeStandalone -- ./
               
               # Đổi tên và chép file .wgt đã ký vào thư mục riêng
               cp *.wgt "${GITHUB_WORKSPACE}/signed-release/${base_name}-signed.wgt"
               cd ${GITHUB_WORKSPACE}
-              rm -rf /tmp/tizen-old-sign
+              rm -rf /tmp/tizen-extract /tmp/tizen-old-sign
               echo "✅ Đã ký số thành công thành file: ${base_name}-signed.wgt"
             fi
           done
