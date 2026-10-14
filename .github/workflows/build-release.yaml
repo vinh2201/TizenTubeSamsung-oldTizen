@@ -22,22 +22,22 @@ jobs:
       ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
     steps:
       - name: Check out source
-        uses: actions/checkout@v4[cite: 22]
+        uses: actions/checkout@v4
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4[cite: 22]
+        uses: actions/setup-node@v4
         with:
-          node-version: '22'[cite: 22]
+          node-version: '22'
 
       - name: Download and Install Tizen Studio CLI
         run: |
           set -euo pipefail
           curl -fL -o tizen-installer "https://download.tizen.org/sdk/Installer/tizen-studio_${TIZEN_STUDIO_VER}/web-cli_Tizen_Studio_${TIZEN_STUDIO_VER}_ubuntu-64.bin"
-          chmod +x tizen-installer[cite: 21]
-          ./tizen-installer --accept-license "${GITHUB_WORKSPACE}/tizen-studio"[cite: 21]
+          chmod +x tizen-installer
+          ./tizen-installer --accept-license "${GITHUB_WORKSPACE}/tizen-studio"
           rm ./tizen-installer[cite: 21]
-          echo "${GITHUB_WORKSPACE}/tizen-studio/tools/ide/bin" >> $GITHUB_PATH[cite: 21]
-          export PATH="${GITHUB_WORKSPACE}/tizen-studio/tools/ide/bin:$PATH"[cite: 21]
+          echo "${GITHUB_WORKSPACE}/tizen-studio/tools/ide/bin" >> $GITHUB_PATH
+          export PATH="${GITHUB_WORKSPACE}/tizen-studio/tools/ide/bin:$PATH"
 
       - name: Configure Certificate and Profile
         env:
@@ -48,27 +48,27 @@ jobs:
           mkdir -p "${GITHUB_WORKSPACE}/tizen-data/keystore/author"
           mkdir -p "${GITHUB_WORKSPACE}/tizen-data/profile"
 
-          # 1. Tự sinh chứng chỉ tạm nếu thiếu Secret hoặc giải mã chứng chỉ thật từ Secret[cite: 21]
+          # 1. Tự sinh chứng chỉ tạm nếu thiếu Secret hoặc giải mã chứng chỉ thật từ Secret
           if [ -z "${AUTHOR_P12_B64:-}" ]; then
             echo "⚠️ Không tìm thấy TIZEN_AUTHOR_KEY secret. Khởi tạo chứng chỉ self-signed tạm thời..."
             FINAL_PW="password123"
-            openssl req -x509 -newkey rsa:2048 -keyout /tmp/author.key -out /tmp/author.crt -days 3650 -nodes -subj "/CN=TizenTubeDev/O=TizenTube/C=US"[cite: 21]
-            openssl pkcs12 -export -out "${GITHUB_WORKSPACE}/tizen-data/keystore/author/author.p12" -inkey /tmp/author.key -in /tmp/author.crt -passout pass:"$FINAL_PW" -certpbe PBE-SHA1-3DES -keypbe PBE-SHA1-3DES -macalg sha1[cite: 21]
-            rm -f /tmp/author.key /tmp/author.crt[cite: 21]
+            openssl req -x509 -newkey rsa:2048 -keyout /tmp/author.key -out /tmp/author.crt -days 3650 -nodes -subj "/CN=TizenTubeDev/O=TizenTube/C=US"
+            openssl pkcs12 -export -out "${GITHUB_WORKSPACE}/tizen-data/keystore/author/author.p12" -inkey /tmp/author.key -in /tmp/author.crt -passout pass:"$FINAL_PW" -certpbe PBE-SHA1-3DES -keypbe PBE-SHA1-3DES -macalg sha1
+            rm -f /tmp/author.key /tmp/author.crt
           else
             echo "✅ Đã tìm thấy TIZEN_AUTHOR_KEY secret. Đang giải mã..."
             FINAL_PW="${AUTHOR_P12_PASSWORD}"
-            echo "$AUTHOR_P12_B64" | base64 -d > "${GITHUB_WORKSPACE}/tizen-data/keystore/author/author.p12"[cite: 21]
+            echo "$AUTHOR_P12_B64" | base64 -d > "${GITHUB_WORKSPACE}/tizen-data/keystore/author/author.p12"
 
-            # Convert chuẩn mã hóa tương thích tuyệt đối với Tizen CLI[cite: 21]
+            # Convert chuẩn mã hóa tương thích tuyệt đối với Tizen CLI
             openssl pkcs12 -legacy -in "${GITHUB_WORKSPACE}/tizen-data/keystore/author/author.p12" -out /tmp/author-intermediate.pem -nodes -passin pass:"$FINAL_PW" || \
-            openssl pkcs12 -in "${GITHUB_WORKSPACE}/tizen-data/keystore/author/author.p12" -out /tmp/author-intermediate.pem -nodes -passin pass:"$FINAL_PW"[cite: 21]
+            openssl pkcs12 -in "${GITHUB_WORKSPACE}/tizen-data/keystore/author/author.p12" -out /tmp/author-intermediate.pem -nodes -passin pass:"$FINAL_PW"
             
-            openssl pkcs12 -export -legacy -in /tmp/author-intermediate.pem -passout pass:"$FINAL_PW" -out "${GITHUB_WORKSPACE}/tizen-data/keystore/author/author.p12" -certpbe PBE-SHA1-3DES -keypbe PBE-SHA1-3DES -macalg sha1[cite: 21]
-            rm -f /tmp/author-intermediate.pem[cite: 21]
+            openssl pkcs12 -export -legacy -in /tmp/author-intermediate.pem -passout pass:"$FINAL_PW" -out "${GITHUB_WORKSPACE}/tizen-data/keystore/author/author.p12" -certpbe PBE-SHA1-3DES -keypbe PBE-SHA1-3DES -macalg sha1
+            rm -f /tmp/author-intermediate.pem
           fi
 
-          # 2. Tạo trực tiếp file profiles.xml chuẩn từ cấu hình hỗ trợ ký chứng chỉ[cite: 21]
+          # 2. Tạo trực tiếp file profiles.xml chuẩn từ cấu hình hỗ trợ ký chứng chỉ
           cat << EOF > "${GITHUB_WORKSPACE}/tizen-data/profile/profiles.xml"
           <?xml version="1.0" encoding="UTF-8" standalone="no"?>
           <profiles active="TizenTubeStandalone" version="3.1">
@@ -90,7 +90,7 @@ jobs:
           </profiles>
           EOF
 
-          tizen cli-config "profiles.path=${GITHUB_WORKSPACE}/tizen-data/profile/profiles.xml"[cite: 21]
+          tizen cli-config "profiles.path=${GITHUB_WORKSPACE}/tizen-data/profile/profiles.xml"
 
       - name: Install build dependencies
         run: |
@@ -98,10 +98,10 @@ jobs:
           npm --prefix legacy install
 
       - name: Test the widget
-        run: npm --prefix legacy test[cite: 22]
+        run: npm --prefix legacy test
 
       - name: Build the unsigned release package
-        run: npm --prefix legacy run build[cite: 22]
+        run: npm --prefix legacy run build
 
       - name: Sign Package with Tizen CLI for Old Tizen
         run: |
@@ -133,11 +133,11 @@ jobs:
           done
 
       - name: Upload Unsigned Package Artifact
-        uses: actions/upload-artifact@v4[cite: 22]
+        uses: actions/upload-artifact@v4
         with:
-          name: TizenTube-old-tizen-unsigned[cite: 22]
-          path: artifacts/*/TizenTube-old-tizen-v*.zip[cite: 22]
-          if-no-files-found: error[cite: 22]
+          name: TizenTube-old-tizen-unsigned
+          path: artifacts/*/TizenTube-old-tizen-v*.zip
+          if-no-files-found: error
 
       - name: Upload Signed WGT Artifact
         uses: actions/upload-artifact@v4
