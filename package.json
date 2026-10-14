@@ -1,0 +1,16 @@
+{
+  "name": "tizentube-old-tizen",
+  "version": "2.3.9",
+  "private": true,
+  "description": "Standalone YouTube with SponsorBlock for older Samsung TVs; tested on KU6000 / Tizen 2.4.0.",
+  "scripts": {
+    "build": "npm --prefix legacy run build",
+    "test": "npm --prefix legacy test"
+  },
+  "author": "Reis Can",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/numbereleven-a/TizenTube-old-tizen.git"
+  },
+  "license": "GPL-3.0-only"
+}

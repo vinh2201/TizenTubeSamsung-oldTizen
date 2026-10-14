@@ -1,0 +1,147 @@
+﻿name: Build and Sign Old Tizen Widget
+
+on:
+  workflow_dispatch:
+  push:
+    branches: 
+      - main
+
+permissions:
+  contents: read
+  contents: write
+  packages: write
+
+env:
+  TIZEN_STUDIO_VER: 5.6
+
+jobs:
+  build:
+    name: Build, Sign and Release Old Tizen WGT
+    runs-on: ubuntu-24.04
+    env:
+      ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4[cite: 22]
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4[cite: 22]
+        with:
+          node-version: '22'[cite: 22]
+
+      - name: Download and Install Tizen Studio CLI
+        run: |
+          set -euo pipefail
+          curl -fL -o tizen-installer "https://download.tizen.org/sdk/Installer/tizen-studio_${TIZEN_STUDIO_VER}/web-cli_Tizen_Studio_${TIZEN_STUDIO_VER}_ubuntu-64.bin"
+          chmod +x tizen-installer[cite: 21]
+          ./tizen-installer --accept-license "${GITHUB_WORKSPACE}/tizen-studio"[cite: 21]
+          rm ./tizen-installer[cite: 21]
+          echo "${GITHUB_WORKSPACE}/tizen-studio/tools/ide/bin" >> $GITHUB_PATH[cite: 21]
+          export PATH="${GITHUB_WORKSPACE}/tizen-studio/tools/ide/bin:$PATH"[cite: 21]
+
+      - name: Configure Certificate and Profile
+        env:
+          AUTHOR_P12_B64: ${{ secrets.TIZEN_AUTHOR_KEY }}
+          AUTHOR_P12_PASSWORD: ${{ secrets.TIZEN_AUTHOR_KEY_PW }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${GITHUB_WORKSPACE}/tizen-data/keystore/author"
+          mkdir -p "${GITHUB_WORKSPACE}/tizen-data/profile"
+
+          # 1. Tự sinh chứng chỉ tạm nếu thiếu Secret hoặc giải mã chứng chỉ thật từ Secret[cite: 21]
+          if [ -z "${AUTHOR_P12_B64:-}" ]; then
+            echo "⚠️ Không tìm thấy TIZEN_AUTHOR_KEY secret. Khởi tạo chứng chỉ self-signed tạm thời..."
+            FINAL_PW="password123"
+            openssl req -x509 -newkey rsa:2048 -keyout /tmp/author.key -out /tmp/author.crt -days 3650 -nodes -subj "/CN=TizenTubeDev/O=TizenTube/C=US"[cite: 21]
+            openssl pkcs12 -export -out "${GITHUB_WORKSPACE}/tizen-data/keystore/author/author.p12" -inkey /tmp/author.key -in /tmp/author.crt -passout pass:"$FINAL_PW" -certpbe PBE-SHA1-3DES -keypbe PBE-SHA1-3DES -macalg sha1[cite: 21]
+            rm -f /tmp/author.key /tmp/author.crt[cite: 21]
+          else
+            echo "✅ Đã tìm thấy TIZEN_AUTHOR_KEY secret. Đang giải mã..."
+            FINAL_PW="${AUTHOR_P12_PASSWORD}"
+            echo "$AUTHOR_P12_B64" | base64 -d > "${GITHUB_WORKSPACE}/tizen-data/keystore/author/author.p12"[cite: 21]
+
+            # Convert chuẩn mã hóa tương thích tuyệt đối với Tizen CLI[cite: 21]
+            openssl pkcs12 -legacy -in "${GITHUB_WORKSPACE}/tizen-data/keystore/author/author.p12" -out /tmp/author-intermediate.pem -nodes -passin pass:"$FINAL_PW" || \
+            openssl pkcs12 -in "${GITHUB_WORKSPACE}/tizen-data/keystore/author/author.p12" -out /tmp/author-intermediate.pem -nodes -passin pass:"$FINAL_PW"[cite: 21]
+            
+            openssl pkcs12 -export -legacy -in /tmp/author-intermediate.pem -passout pass:"$FINAL_PW" -out "${GITHUB_WORKSPACE}/tizen-data/keystore/author/author.p12" -certpbe PBE-SHA1-3DES -keypbe PBE-SHA1-3DES -macalg sha1[cite: 21]
+            rm -f /tmp/author-intermediate.pem[cite: 21]
+          fi
+
+          # 2. Tạo trực tiếp file profiles.xml chuẩn từ cấu hình hỗ trợ ký chứng chỉ[cite: 21]
+          cat << EOF > "${GITHUB_WORKSPACE}/tizen-data/profile/profiles.xml"
+          <?xml version="1.0" encoding="UTF-8" standalone="no"?>
+          <profiles active="TizenTubeStandalone" version="3.1">
+            <profile name="TizenTubeStandalone">
+              <profileitem
+                ca="${GITHUB_WORKSPACE}/tizen-studio/tools/certificate-generator/certificates/developer/tizen-developer-ca.cer"
+                distributor="0"
+                key="${GITHUB_WORKSPACE}/tizen-data/keystore/author/author.p12"
+                password="${FINAL_PW}"
+                rootca=""/>
+              <profileitem
+                ca="${GITHUB_WORKSPACE}/tizen-studio/tools/certificate-generator/certificates/distributor/sdk-public/tizen-distributor-ca.cer"
+                distributor="1"
+                key="${GITHUB_WORKSPACE}/tizen-studio/tools/certificate-generator/certificates/distributor/sdk-public/tizen-distributor-signer.p12"
+                password="tizenpkcs12passfordsigner"
+                rootca=""/>
+              <profileitem ca="" distributor="2" key="" password="" rootca=""/>
+            </profile>
+          </profiles>
+          EOF
+
+          tizen cli-config "profiles.path=${GITHUB_WORKSPACE}/tizen-data/profile/profiles.xml"[cite: 21]
+
+      - name: Install build dependencies
+        run: |
+          npm --prefix mods install
+          npm --prefix legacy install
+
+      - name: Test the widget
+        run: npm --prefix legacy test[cite: 22]
+
+      - name: Build the unsigned release package
+        run: npm --prefix legacy run build[cite: 22]
+
+      - name: Sign Package with Tizen CLI for Old Tizen
+        run: |
+          set -euo pipefail
+          mkdir -p signed-release
+          
+          # Tìm gói zip chưa ký do bản fork build ra
+          for f in artifacts/*/TizenTube-old-tizen-v*.zip; do
+            if [ -f "$f" ]; then
+              filename=$(basename "$f")
+              base_name=$(basename "$f" .zip)
+              echo "🔏 Đang giải nén và tiến hành ký số cho gói: $filename..."
+              
+              rm -rf /tmp/tizen-old-sign && mkdir -p /tmp/tizen-old-sign
+              unzip -q "$f" -d /tmp/tizen-old-sign/
+              
+              # Tiêm file .project cấu hình Tizen Web Nature giúp Tizen CLI nhận diện đúng cấu trúc dự án web
+              printf '<?xml version="1.0" encoding="UTF-8"?>\n<projectDescription>\n    <name>TizenOldTemp</name>\n    <comment></comment>\n    <projects>\n    </projects>\n    <buildSpec>\n    </buildSpec>\n    <natures>\n        <nature>org.tizen.web.project.core.webNature</nature>\n    </natures>\n</projectDescription>\n' > /tmp/tizen-old-sign/.project
+              
+              cd /tmp/tizen-old-sign
+              tizen package -t wgt -s TizenTubeStandalone -- ./
+              
+              # Đổi tên và chép file .wgt đã ký vào thư mục riêng
+              cp *.wgt "${GITHUB_WORKSPACE}/signed-release/${base_name}-signed.wgt"
+              cd ${GITHUB_WORKSPACE}
+              rm -rf /tmp/tizen-old-sign
+              echo "✅ Đã ký số thành công thành file: ${base_name}-signed.wgt"
+            fi
+          done
+
+      - name: Upload Unsigned Package Artifact
+        uses: actions/upload-artifact@v4[cite: 22]
+        with:
+          name: TizenTube-old-tizen-unsigned[cite: 22]
+          path: artifacts/*/TizenTube-old-tizen-v*.zip[cite: 22]
+          if-no-files-found: error[cite: 22]
+
+      - name: Upload Signed WGT Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TizenTube-old-tizen-signed
+          path: signed-release/*.wgt
+          if-no-files-found: error
