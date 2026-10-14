@@ -102,7 +102,7 @@ jobs:
       - name: Build the unsigned release package
         run: npm --prefix legacy run build
 
-      - name: Sign Package with Tizen CLI for Old Tizen
+- name: Sign Package with Tizen CLI for Old Tizen
         run: |
           set -euo pipefail
           mkdir -p signed-release
@@ -116,6 +116,15 @@ jobs:
               
               rm -rf /tmp/tizen-old-sign && mkdir -p /tmp/tizen-old-sign
               unzip -q "$f" -d /tmp/tizen-old-sign/
+              
+              # Tự động tìm và lôi config.xml ra thư mục gốc nếu nó nằm trong thư mục con
+              if [ ! -f "/tmp/tizen-old-sign/config.xml" ]; then
+                nested_dir=$(find /tmp/tizen-old-sign -maxdepth 3 -name "config.xml" -exec dirname {} \; | head -n 1)
+                if [ -n "${nested_dir:-}" ] && [ "$nested_dir" != "/tmp/tizen-old-sign" ]; then
+                  echo "📂 Phát hiện cấu trúc lồng nhau, đang di chuyển file từ $nested_dir ra root..."
+                  cp -r "$nested_dir"/* /tmp/tizen-old-sign/
+                fi
+              fi
               
               # Tiêm file .project cấu hình Tizen Web Nature giúp Tizen CLI nhận diện đúng cấu trúc dự án web
               printf '<?xml version="1.0" encoding="UTF-8"?>\n<projectDescription>\n    <name>TizenOldTemp</name>\n    <comment></comment>\n    <projects>\n    </projects>\n    <buildSpec>\n    </buildSpec>\n    <natures>\n        <nature>org.tizen.web.project.core.webNature</nature>\n    </natures>\n</projectDescription>\n' > /tmp/tizen-old-sign/.project
